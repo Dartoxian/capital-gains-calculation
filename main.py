@@ -88,8 +88,9 @@ class Holding:
         self.transactions: List[Transaction] = []
 
     def add_transaction(self, new_transaction: Transaction):
-        existing_same_day_transactions = [t for t in self.transactions if t.transaction_date == new_transaction.transaction_date]
+        existing_same_day_transactions = [t for t in self.transactions if t.transaction_date == new_transaction.transaction_date and t.type not in ['DIV ', 'CASH'] and t.type == new_transaction.type]
         if existing_same_day_transactions:
+            print(existing_same_day_transactions)
             raise NotImplementedError("I don't do same day trading")
 
         if new_transaction.type == "BUY ":
@@ -152,14 +153,14 @@ if __name__ == "__main__":
                     writer.writerow(t.to_csv_record())
                 writer.writerow({})
 
-        output = args.path.replace(".csv", "-processed-21-22.csv")
+        output = args.path.replace(".csv", "-processed-22-23.csv")
         print(f"Writing output to {output}")
         with open(output, "w") as out_f:
             writer = csv.DictWriter(out_f, list(holdings.values())[0].transactions[0].to_csv_record().keys())
             for h in holdings.values():
                 relevant_transactions = [
                     t for t in h.transactions
-                    if datetime(2021, 4, 6) <= t.transaction_date <= datetime(2022, 4, 5)
+                    if datetime(2022, 4, 6) <= t.transaction_date <= datetime(2023, 4, 5)
                 ]
                 if not relevant_transactions:
                     continue
