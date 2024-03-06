@@ -17,7 +17,10 @@ def get_exchange_rate(currency: str, on: datetime) -> float:
 def _load_rates_on_date(on: datetime):
     required_file = _rates_filename_for(on)
     if not os.path.exists(f"{CACHE_LOCATION}{required_file}"):
-        _cache_rates_from_hmrc(required_file)
+        if on < datetime(2023, 12, 1):
+            _cache_rates_from_hmrc(required_file, f"http://www.hmrc.gov.uk/softwaredevelopers/rates/{required_file}")
+        else:
+            _cache_rates_from_hmrc(required_file, f"https://www.trade-tariff.service.gov.uk/api/v2/exchange_rates/files/{required_file}")
     tree = ET.parse(f"{CACHE_LOCATION}{required_file}")
     root = tree.getroot()
     lookup = {}
@@ -26,8 +29,8 @@ def _load_rates_on_date(on: datetime):
     return lookup
 
 
-def _cache_rates_from_hmrc(filename: str):
-    r = requests.get(f"http://www.hmrc.gov.uk/softwaredevelopers/rates/{filename}")
+def _cache_rates_from_hmrc(filename: str, url: str):
+    r = requests.get(url)
     r.raise_for_status()
     if not os.path.exists(CACHE_LOCATION):
         os.mkdir(CACHE_LOCATION)
@@ -36,4 +39,6 @@ def _cache_rates_from_hmrc(filename: str):
 
 
 def _rates_filename_for(on: datetime) -> str:
-    return f"exrates-monthly-{on.strftime('%m%y')}.XML"
+    if on < datetime(2023, 12, 1):
+        return f"exrates-monthly-{on.strftime('%m%y')}.XML"
+    return f"monthly_xml_{on.year}-{on.month}.xml"

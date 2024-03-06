@@ -1,6 +1,7 @@
 import argparse
 import csv
 import os
+import re
 from datetime import datetime, timedelta
 from typing import Tuple, List, Dict
 
@@ -13,6 +14,7 @@ symbol_lookup = {
     "£": "GBP"
 }
 
+number_pattern = re.compile("^\d+$")
 
 
 class Transaction:
@@ -24,7 +26,8 @@ class Transaction:
         self.symbol = symbol
         self._sedol = sedol
         self._isin = isin
-        self.quantity = int(quantity) if quantity else None
+        self.quantity = int(quantity) if number_pattern.match(quantity) else None
+        self.quantity_repurchased = int(quantity) if number_pattern.match(quantity) else None
         self._currency = symbol_lookup[running_balance[0]]
         self._price = parse_maybe_price(price)
         self._description = description
@@ -32,7 +35,7 @@ class Transaction:
         self._debit = parse_maybe_price(debit)
         self._credit = parse_maybe_price(credit)
         self._running_balance = parse_maybe_price(running_balance)
-        self.gain_loss_gbp = None
+        self.gain_loss_gbp = 0
         self.gain_loss_explanation = ""
 
     @property
@@ -71,12 +74,14 @@ class Transaction:
             "Transaction date": self.transaction_date.strftime("%Y-%m-%d"),
             "Type": self.type,
             "Symbol": self.symbol,
+            "Price": self._price.__format__(".2f") if self._price else '',
             "Description": self._description,
             "Quantity": str(self.quantity) if self.quantity else '',
             "Balance Change": str(self.balance_change.__format__(".2f")),
             "Exchange rate": str(self.exchange_rate),
             "Balance Change (GBP)": self.balance_change_gbp.__format__(".2f"),
             "Gain/Loss (GBP)": self.gain_loss_gbp.__format__(".2f") if self.gain_loss_gbp else '',
+            "Dividend (GBP)": "" if self.type != "DIV " else self.balance_change_gbp.__format__(".2f"),
             "Gain/Loss sourcing": self.gain_loss_explanation
         }
 
@@ -96,10 +101,27 @@ class Holding:
         if new_transaction.type == "BUY ":
             sale_in_last_30_days = [t for t in self.transactions if t.transaction_date >= new_transaction.transaction_date - timedelta(days=30) and t.type == "SELL"]
             if sale_in_last_30_days:
-                raise NotImplementedError(f"Bed and breakfasting rule for {new_transaction} vs {sale_in_last_30_days}")
+                self.pool_quantity += new_transaction.quantity
+                quantity_not_b_and_b = new_transaction.quantity
+                i = 0
+                while quantity_not_b_and_b > 0 and i < len(sale_in_last_30_days):
+                    sale = sale_in_last_30_days[i]
+                    b_and_b_shares = min(sale.quantity_repurchased, quantity_not_b_and_b)
+                    sale.quantity_repurchased -= b_and_b_shares
+                    sale_price = (b_and_b_shares * sale.balance_change_gbp / sale.quantity)
+                    repurchase_price = (b_and_b_shares * new_transaction.balance_change_gbp / new_transaction.quantity) # Negative
+                    new_transaction.gain_loss_gbp += sale_price + repurchase_price
+                    new_transaction.gain_loss_explanation += f"Bought back {b_and_b_shares} for {repurchase_price.__format__('.2f')} that were sold on {sale.transaction_date.strftime('%Y-%m-%d')} for {sale_price.__format__('.2f')}. "
+                    if b_and_b_shares == sale.quantity:
+                        i += 1
+                    quantity_not_b_and_b -= b_and_b_shares
+                if quantity_not_b_and_b > 0:
+                    self.pool_average_price_gbp = ((self.pool_quantity * self.pool_average_price_gbp) + (-quantity_not_b_and_b * new_transaction.balance_change_gbp / new_transaction.quantity)) / (self.pool_quantity + quantity_not_b_and_b)
+                    new_transaction.gain_loss_explanation += f"Added {quantity_not_b_and_b} to the S104 Pool, making the average price {self.pool_average_price_gbp.__format__('.2f')}"
             else:
                 self.pool_average_price_gbp = ((self.pool_quantity * self.pool_average_price_gbp) + (-new_transaction.balance_change_gbp)) / (self.pool_quantity + new_transaction.quantity)
                 self.pool_quantity += new_transaction.quantity
+                new_transaction.gain_loss_explanation += f"Added {new_transaction.quantity} to the S104 Pool, making the average price {self.pool_average_price_gbp.__format__('.2f')}"
         if new_transaction.type == "SELL":
             new_transaction.gain_loss_gbp = new_transaction.balance_change_gbp - (new_transaction.quantity * self.pool_average_price_gbp)
             self.pool_quantity -= new_transaction.quantity
@@ -153,14 +175,14 @@ if __name__ == "__main__":
                     writer.writerow(t.to_csv_record())
                 writer.writerow({})
 
-        output = args.path.replace(".csv", "-processed-22-23.csv")
+        output = args.path.replace(".csv", "-processed-23-24.csv")
         print(f"Writing output to {output}")
         with open(output, "w") as out_f:
             writer = csv.DictWriter(out_f, list(holdings.values())[0].transactions[0].to_csv_record().keys())
             for h in holdings.values():
                 relevant_transactions = [
                     t for t in h.transactions
-                    if datetime(2022, 4, 6) <= t.transaction_date <= datetime(2023, 4, 5)
+                    if datetime(2023, 4, 6) <= t.transaction_date <= datetime(2024, 4, 5)
                 ]
                 if not relevant_transactions:
                     continue
