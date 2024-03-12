@@ -186,6 +186,7 @@ if __name__ == "__main__":
                 ]
                 if not relevant_transactions:
                     continue
+                writer.writerow({"Transaction date": f"{h._symbol} has S104 pool of {h.pool_quantity} at {h.pool_average_price_gbp.__format__('.2f')} on {datetime.now().strftime('%Y-%m-%d')}"})
                 writer.writeheader()
                 for t in relevant_transactions:
                     writer.writerow(t.to_csv_record())
